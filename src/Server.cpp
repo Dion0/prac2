@@ -10,15 +10,19 @@
 #include <cstring>
 #include <cstdio>
 #include <new>
+#include <vector>
 
 const int PORT = 8888;
 const int c_base = 10;
-const int c_add = 5;
 const int stdin_buffer_size = 256;
+const int c_b_size = 2048;
 
-Server::Server() : client_base(c_base), client_add(c_add){
-	listen_sock = socket(AF_INET, SOCK_STREAM, 0);
+Server::Server() : client_base(c_base),
+				   client_buffer_base(c_b_size){
 	listening = false;
+	client_cnt = 0;
+
+	listen_sock = socket(AF_INET, SOCK_STREAM, 0);
 	if (listen_sock == -1){
 		ERR_RES = SERV_ERRORS::SOCKET_ERR;
 		perror("couldn't create listen socket\n");
@@ -27,6 +31,10 @@ Server::Server() : client_base(c_base), client_add(c_add){
 	address.sin_family = AF_INET;
 	address.sin_addr.s_addr = INADDR_ANY;
 	address.sin_port = htons(PORT);
+
+	int tmp = 1;
+	setsockopt(listen_sock, SOL_SOCKET, SO_REUSEADDR,
+			   &tmp, sizeof(tmp));
 	int bind_res = bind(listen_sock, (struct sockaddr*) &address,
 						sizeof(address));
 	if (0 != bind_res){
@@ -34,31 +42,27 @@ Server::Server() : client_base(c_base), client_add(c_add){
 		perror("couldn't bind to socket\n");
 		return;
 	}
-	client_cnt = 0;
-	client_capacity = c_base;
-	client_socks = new(std::nothrow) int[client_capacity];
-	if (client_socks == nullptr){
-		fprintf(stderr, "failed to allocate memory for "
-				"client descriptors\n");
-		client_capacity = 0;
-	}
 }
 
-int Server::add_client(int fd){
-	if (client_cnt >= client_capacity - 1){
-		client_capacity += client_add;
-		int *tmp = new(std::nothrow) int[client_capacity];
-		if (tmp == nullptr){
-			fprintf(stderr, "failed to allocate temporary "
-					"array while adding client\n");
-			return -1;
-		}
-		for (int i = 0; i < client_cnt; i++)
-			tmp[i] = client_socks[i];
-		delete [] client_socks;
-		client_socks = tmp;
-	}
-	client_socks[client_cnt++] = fd;
+int Server::add_client(int fd, struct sockaddr_in adr,
+					   socklen_t len){
+	printf("client connected:\n");
+	print_client(fd, adr);
+	client_cnt++;
+	client_socks.push_back(fd);
+	client_buffer.push_back(std::vector<char>
+							(client_buffer_base));
+	client_addr.push_back(adr);
+	client_len.push_back(len);
+	return 0;
+}
+
+int Server::remove_client(std::size_t ind){
+	if (ind >= client_cnt)
+		return -1;
+	shutdown(client_socks[ind], SHUT_RDWR);
+	close(client_socks[ind]);
+	client_socks.erase(client_socks.begin() + ind);
 	return 0;
 }
 
@@ -68,10 +72,10 @@ void Server::gen_fd_set(){
 	FD_ZERO(&read_fds);
 	FD_SET(STDOUT_FILENO, &read_fds);
 	FD_SET(listen_sock, &read_fds);
-	for (int i = 0; i < client_cnt; i++){
-		FD_SET(client_socks[i], &read_fds);
-		if (client_socks[i] > max_d)
-			max_d = client_socks[i];
+	for (int const &sock: client_socks){
+		FD_SET(sock, &read_fds);
+		if (sock > max_d)
+			max_d = sock;
 	}
 }
 
@@ -87,12 +91,41 @@ void Server::process_fd_set(){
 			ERR_RES = SERV_ERRORS::ACCEPT_ERR;
 			perror("failed to accept\n");
 		}else{
-			add_client(t_sock);
+			add_client(t_sock, t_addr, t_addr_len);
 		}
 	}
 	if (FD_ISSET(STDOUT_FILENO, &read_fds)){
 		handle_input();
 	}
+	for (std::size_t i = 0; i != client_cnt; i++)
+		if (FD_ISSET(client_socks[i], &read_fds))
+			handle_client(i);
+}
+
+void Server::print_client(int sd, struct sockaddr_in addr){
+	char *tmp = inet_ntoa(addr.sin_addr);
+	printf("\tsocket : %d\n"
+		   "\tip:port: %s:%d\n",
+		   sd, tmp, addr.sin_port);
+}
+
+void Server::print_clients() const{
+	for (std::size_t i = 0; i != client_cnt; i++)
+		print_client(client_socks[i], client_addr[i]);
+}
+// TODO: add parser and parse (duh) received message if it is
+//complete
+void Server::handle_client(std::size_t ind){
+	std::size_t recv_cnt;
+	recv_cnt = recv(client_socks[ind], &client_buffer[ind][0],
+					client_buffer[ind].capacity() -1, 0);
+	if (recv_cnt == 0){
+		remove_client(ind);
+		return;
+	}
+	client_buffer[ind][recv_cnt] = 0;
+	printf("received string:\n"
+		   "%s\n", client_buffer[ind].data());
 }
 
 void Server::handle_input(){
@@ -100,12 +133,19 @@ void Server::handle_input(){
 	static ssize_t read_cnt;
 	read_cnt = read(STDOUT_FILENO, stdin_buffer,
 					stdin_buffer_size-1);
+	if (read_cnt < 1){
+		fprintf(stderr, "error reading from stdin\n");
+		return;
+	}
 	stdin_buffer[read_cnt] = 0;
-	if (read_cnt > 3){ 
+	if (read_cnt >= 3){ 
 		if (0 == strncmp("log", stdin_buffer, 3))
 			printf("trying to log:%s", stdin_buffer+3);
 		if (0 == strncmp("end", stdin_buffer, 3))
 			listening = false;
+	}
+	if (0 == strncmp("print", stdin_buffer, 5)){
+		print_clients();
 	}
 }
 
@@ -115,9 +155,7 @@ int Server::run(){
 		perror("failed to listen\n");
 		return -1;
 	}
-
 	listening = true;
-					
 	while (listening){
 		gen_fd_set();
 		int sel_res = select(max_d + 1, &read_fds, NULL, NULL,
@@ -134,10 +172,14 @@ int Server::run(){
 }
 
 Server::~Server(){
-	for (int i = 0; i < client_cnt; i++){
-		shutdown(client_socks[i], 2);
-		close(client_socks[i]);
+	if (-1 != listen_sock){
+		shutdown(listen_sock, SHUT_RDWR);
+		close(listen_sock);
 	}
-	delete [] client_socks;
+	for (auto const &sock : client_socks){
+		shutdown(sock, SHUT_RDWR);
+		close(sock);
+	}
+	client_socks.clear();
 }
 

@@ -38,9 +38,11 @@ int Client::run(){
 	}
 	running = true;
 	char in_buff[INP_BUFF_SIZE];
+	std::size_t read_cnt;
 	
 	while (running){
-		scanf("%s", in_buff);
+		read_cnt = read(STDIN_FILENO, in_buff, INP_BUFF_SIZE - 1);
+		in_buff[read_cnt] = 0;
 		if (0 == strncmp(in_buff, "connect", 7)){
 			if (0 != connect(sock, (struct sockaddr*)&serv_addr,
 							 sizeof(serv_addr))){
@@ -53,7 +55,11 @@ int Client::run(){
 		}else if (0 == strncmp(in_buff, "exit", 4)){
 			running = false;
 			continue;
+		}else if (0 == strncmp(in_buff, "send", 4)){
+			printf("%ld\n", strlen(&in_buff[4]));
+			send(sock, in_buff+4, strlen(in_buff+4)+1, 0);
 		}
+		
 	}
 	
 	return return_val;

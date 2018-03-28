@@ -1,12 +1,9 @@
-OBJS = $(patsubst %, build/%, Server.o)
+OBJS = $(patsubst %, build/%, Server.o Client.o)
 CC = g++
 DEBUG = -g
 LFLAGS =
 CFLAGS = $(DEBUG) -c -Wall
 CLEANS = $(patsubst %, build%, *.o, ) bin/*
-
-bin/main: $(OBJS) src/main.cpp
-	$(CC) $(LFLAGS) $(OBJS) src/main.cpp -o bin/main
 
 bin/server: build/Server.o src/run_server.cpp
 	$(CC) $(LFLAGS) build/Server.o src/run_server.cpp -o bin/server
@@ -19,7 +16,7 @@ $(OBJS): build/%.o : src/%.cpp src/%.hpp
 
 server: bin/server
 client: bin/client
-all: server client bin/main
+all: server client
 
 clean:
 	rm -f $(CLEANS)
