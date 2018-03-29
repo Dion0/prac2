@@ -5,12 +5,15 @@
 #include <sys/select.h>
 #include <vector>
 
+#include "Logger.hpp"
+
 class Server{
 	const int client_base, client_buffer_base;
 	int listen_sock;
 	bool listening;
 	struct sockaddr_in address;
-
+	Logger *logger;
+	
 	fd_set read_fds;
 	int max_d;
 	std::size_t client_cnt;
@@ -31,13 +34,18 @@ public:
 	Server();	
 	int run();
 	int add_client(int fd, struct sockaddr_in s, socklen_t l);
-	int remove_client(std::size_t ind);
-	void gen_fd_set();
-	void process_fd_set();
-	void print_clients() const;
+	char *client_str(int ind) const;
+	char *client_str(struct sockaddr_in s, int sd) const;
 	void handle_client(std::size_t ind);
 	void handle_input();
-	static void print_client(int sd, struct sockaddr_in s);
+	void gen_fd_set();
+	void log(const char* str, int client_num = -1);
+	void process_fd_set();
+	void print_clients() const;
+	int remove_client(std::size_t ind);
+	
+	void print_client(int ind) const;
+	void print_client(struct sockaddr_in s, int sd) const;
 	~Server();
 };
 

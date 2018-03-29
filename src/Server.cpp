@@ -12,26 +12,33 @@
 #include <new>
 #include <vector>
 
+#include "Logger.hpp"
+
 const int PORT = 8888;
 const int c_base = 10;
 const int stdin_buffer_size = 256;
 const int c_b_size = 2048;
+const int log_buffer_size = 1024;
 
 Server::Server() : client_base(c_base),
 				   client_buffer_base(c_b_size){
 	listening = false;
 	client_cnt = 0;
 
+	logger = Logger::instance();
+	logger->set_file("logs/server_logs.txt");
+
 	listen_sock = socket(AF_INET, SOCK_STREAM, 0);
 	if (listen_sock == -1){
 		ERR_RES = SERV_ERRORS::SOCKET_ERR;
+		logger->log("Error creating listen socket");
 		perror("couldn't create listen socket\n");
 		return;
 	}
 	address.sin_family = AF_INET;
 	address.sin_addr.s_addr = INADDR_ANY;
 	address.sin_port = htons(PORT);
-
+	
 	int tmp = 1;
 	setsockopt(listen_sock, SOL_SOCKET, SO_REUSEADDR,
 			   &tmp, sizeof(tmp));
@@ -39,6 +46,7 @@ Server::Server() : client_base(c_base),
 						sizeof(address));
 	if (0 != bind_res){
 		ERR_RES = SERV_ERRORS::BIND_ERR;
+		logger->log("Error binding to socket");
 		perror("couldn't bind to socket\n");
 		return;
 	}
@@ -46,8 +54,8 @@ Server::Server() : client_base(c_base),
 
 int Server::add_client(int fd, struct sockaddr_in adr,
 					   socklen_t len){
-	printf("client connected:\n");
-	print_client(fd, adr);
+	printf("client connected:");
+	print_client(adr, fd);
 	client_cnt++;
 	client_socks.push_back(fd);
 	client_buffer.push_back(std::vector<char>
@@ -60,6 +68,11 @@ int Server::add_client(int fd, struct sockaddr_in adr,
 int Server::remove_client(std::size_t ind){
 	if (ind >= client_cnt)
 		return -1;
+	printf("Client disconnected:");
+	print_client(ind);
+	logger->log("Client disconnected:\n");
+	logger->log(client_str(ind), false);
+	
 	shutdown(client_socks[ind], SHUT_RDWR);
 	close(client_socks[ind]);
 	client_socks.erase(client_socks.begin() + ind);
@@ -89,6 +102,8 @@ void Server::process_fd_set(){
 						&t_addr_len);
 		if (-1 == t_sock){
 			ERR_RES = SERV_ERRORS::ACCEPT_ERR;
+			logger->log("Failed to accept connection:");
+			logger->log(client_str(t_addr, t_sock), false);
 			perror("failed to accept\n");
 		}else{
 			add_client(t_sock, t_addr, t_addr_len);
@@ -102,16 +117,39 @@ void Server::process_fd_set(){
 			handle_client(i);
 }
 
-void Server::print_client(int sd, struct sockaddr_in addr){
+//TODO
+void Server::log(const char *comment, int client_num){
+	static char log_buf[log_buffer_size];
+	if (client_num >= 0)
+		sprintf(log_buf, "xdd");
+	else
+		sprintf(log_buf, "ddx");
+}
+
+char *Server::client_str(int ind) const{
+	return client_str(client_addr[ind], client_socks[ind]);
+}
+
+char *Server::client_str(struct sockaddr_in addr, int sd) const{
+	static char buf[log_buffer_size];
 	char *tmp = inet_ntoa(addr.sin_addr);
-	printf("\tsocket : %d\n"
+	sprintf(buf, "\n\tsocket : %d\n"
 		   "\tip:port: %s:%d\n",
 		   sd, tmp, addr.sin_port);
+	return buf;
+}
+
+void Server::print_client(int ind) const{
+	print_client(client_addr[ind], client_socks[ind]);
+}
+
+void Server::print_client(struct sockaddr_in addr, int sd) const{
+	printf("%s", client_str(addr, sd));
 }
 
 void Server::print_clients() const{
 	for (std::size_t i = 0; i != client_cnt; i++)
-		print_client(client_socks[i], client_addr[i]);
+		print_client(i);
 }
 // TODO: add parser and parse (duh) received message if it is
 //complete
@@ -139,8 +177,10 @@ void Server::handle_input(){
 	}
 	stdin_buffer[read_cnt] = 0;
 	if (read_cnt >= 3){ 
-		if (0 == strncmp("log", stdin_buffer, 3))
-			printf("trying to log:%s", stdin_buffer+3);
+		if (0 == strncmp("log", stdin_buffer, 3)){
+			logger->log(stdin_buffer+3);
+			printf("log:%s", stdin_buffer+3);
+		}
 		if (0 == strncmp("end", stdin_buffer, 3))
 			listening = false;
 	}

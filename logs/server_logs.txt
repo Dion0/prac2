@@ -1,0 +1,18 @@
+[2018-3-29 17:30:31]: Client disconnected:
+
+	
+	socket : 6
+	ip:port: 127.0.0.1:59562
+
+[2018-3-29 17:30:36]: Client disconnected:
+
+	
+	socket : 5
+	ip:port: 127.0.0.1:57514
+
+[2018-3-29 17:38:7]: Client disconnected:
+
+	
+	socket : 5
+	ip:port: 127.0.0.1:7339
+

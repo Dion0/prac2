@@ -1,0 +1,3 @@
+[2018-3-29 17:22:14]: Logger constructed
+[2018-3-29 17:29:56]: Logger constructed
+[2018-3-29 17:37:40]: Logger constructed
